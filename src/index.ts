@@ -1,9 +1,14 @@
-import { CreateDB } from "./createDB";
+import { DBInstance } from "./DBInstance";
+import * as dotenv from 'dotenv';
+import { User } from './user';
+dotenv.config()
 
-const influxDB: CreateDB = new CreateDB(
-  "uS41dN2o9_h_lnYCxCACeXYR5lgqxraI2hEp7xoyQuhf29VixPh6EW9poSvEyrKoNZDxhY_jvlU2Pu62uGvoEw==",
+const influxDB: DBInstance = new DBInstance(
+  process.env.ROOT_TOKEN!,
   "my-org",
   "test-bucket"
 );
 
-influxDB.createUser("John", "111");
+const users: User = new User(influxDB);
+
+users.createUser("John", "john_doe");
