@@ -1,37 +1,32 @@
 import { Point, Row } from '@influxdata/influxdb-client';
-import { finalize, from, Observable, take, tap } from 'rxjs';
+import { catchError, finalize, from, Observable, of, take, tap } from 'rxjs';
 import { DBInstance } from './DBInstance';
 import { InfluxQueryBuilder } from './influx-query-builder';
 import { IUnsafe } from './interfaces/unsafe-value';
 
 export class User {
-	public constructor(private db: DBInstance) {
-	}
+	public constructor(private db: DBInstance) {}
 
-	public createUser(name: string, login: string): void {
+	public createUser(name: string, login: string): Observable<any> {
 		let hasValue: boolean = false;
-		this.getUserByLogin(login)
-			.pipe(
-				take(1),
-				tap((value: IUnsafe<Row>) => (hasValue = !!value)),
-				finalize(() => {
-					if (!hasValue) {
-						const user: Point = new Point('users')
-							.stringField('name', name)
-							.stringField('login', login)
-							// очень грязный хак, писать в поле через пробел логины друзей
-							.stringField('friends', '');
+		return this.getUserByLogin(login).pipe(
+			take(1),
+			tap((value: IUnsafe<Row>) => (hasValue = !!value)),
+			finalize(() => {
+				if (!hasValue) {
+					const user: Point = new Point('users')
+						.stringField('name', name)
+						.stringField('login', login);
 
-						this.db.writeAPI.writePoint(user);
-						this.db.writeAPI.close().then(() => {
-							console.log('writing user done');
-						});
-					} else {
-						console.error('User with such login already exist');
-					}
-				}),
-			)
-			.subscribe();
+					this.db.writeAPI.writePoint(user);
+					this.db.writeAPI.close().then(() => {
+						console.log('writing user done');
+					});
+				} else {
+					throw new Error('User with such login already exist');
+				}
+			}),
+		);
 	}
 
 	private getUserByLogin(login: string): Observable<IUnsafe<Row>> {
@@ -47,7 +42,11 @@ export class User {
 		// |> filter(fn: (r) => r["_field"] == "login")
 		// |> filter(fn: (r) => r["_value"] == "${login}")`;
 
-		return from(this.db.queryAPI.rows(queryBuilder.build()));
+		return from(this.db.queryAPI.rows(queryBuilder.build())).pipe(
+			catchError((err: any) => {
+				console.error(err);
+				return of(void 0);
+			}),
+		);
 	}
-
 }

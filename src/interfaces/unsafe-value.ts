@@ -1,1 +1,1 @@
-export type IUnsafe<T> = T | null;
+export type IUnsafe<T> = T | null | undefined;
