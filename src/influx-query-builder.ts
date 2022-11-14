@@ -50,6 +50,8 @@ export class InfluxQueryBuilder {
 
 		result += `|> filter(fn: (r) => r["_field"] == "${this.field}")`;
 
+		result += `|> filter(fn: (r) => r["_value"] == "${this.value}")`
+
 		if (this.aggregateFn) {
 			result += `|> aggregateWindow(every: v.windowPeriod, fn: ${this.aggregateFn}, createEmpty: false)|> yield(name: "${this.aggregateFn}")`;
 		}
