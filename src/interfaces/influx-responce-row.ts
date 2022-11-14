@@ -1,4 +1,4 @@
-export interface IInfluxResponceRow {
+export interface IInfluxResponseRow {
 	result: string;
 	table: number;
 	_start: string;

@@ -36,7 +36,9 @@ server.put('/create-user', (req: Request, res: Response) => {
 			res.status(400).json({ errorMessage: err.message });
 			return of(void 0);
 		}),
-	);
+	).subscribe(() => {
+		res.status(200)
+	});
 });
 
 server.listen(port, () => {

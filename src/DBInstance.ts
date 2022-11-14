@@ -12,7 +12,7 @@ import {
 	take,
 	tap,
 } from 'rxjs';
-import { IInfluxResponceRow } from './interfaces/influx-responce-row';
+import { IInfluxResponseRow } from './interfaces/influx-responce-row';
 import { IUnsafe } from './interfaces/unsafe-value';
 
 export class DBInstance {

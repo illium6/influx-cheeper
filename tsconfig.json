@@ -1,8 +1,9 @@
 {
-  "extends": "@tsconfig/node14/tsconfig.json",
-  "compilerOptions": {
-    "outDir": "build",
-    "rootDir": "src",
-    "lib": ["es2015", "dom"]
-  }
+	"extends": "@tsconfig/node14/tsconfig.json",
+	"compilerOptions": {
+		"outDir": "build",
+		"rootDir": "src",
+		"lib": ["es2015", "dom"],
+		"sourceMap": true
+	}
 }
