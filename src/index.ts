@@ -5,7 +5,8 @@ dotenv.config();
 
 import bodyParser from 'body-parser';
 import express, { Express, Request, Response } from 'express';
-import routes from './url-paths/put';
+import getRoutes from './url-paths/get';
+import putRoutes from './url-paths/put';
 //
 // users.createUser("John", "john_doe");
 
@@ -19,7 +20,8 @@ server.use((req, res, next) => {
 	next();
 });
 
-server.use(routes);
+server.use(putRoutes);
+server.use(getRoutes);
 
 server.get('/', (req: Request, res: Response) => {
 	res.send('Hello world');

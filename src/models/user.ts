@@ -1,14 +1,40 @@
 import { Point, Row } from '@influxdata/influxdb-client';
-import { catchError, forkJoin, from, last, map, Observable, of, switchMap } from 'rxjs';
-import { DBInstance } from './DBInstance';
-import { IQueryResponse } from './interfaces/query-response';
-import { UserError } from './models/user-error';
+import {
+	catchError,
+	first,
+	forkJoin,
+	from,
+	map,
+	Observable,
+	of,
+	switchMap,
+} from 'rxjs';
+import { DBInstance } from '../DBInstance';
+import { IQueryResponse } from '../interfaces/query-response';
+import { UserError, UserExistError } from './user-error';
 
 export class User {
 	public constructor(private db: DBInstance) {}
 
+	public getFriendsPair(user: string, friend: string): Observable<IQueryResponse> {
+		const pairQuery: string = `from(bucket: "test-bucket")
+		|> range(start: 0)
+		|> filter(fn: (r) => r["_measurement"] == "friends")
+		|> filter(fn: (r) => r._field == "userLogin" or r._field == "friendLogin")
+		|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+		|> filter(fn: (r) => r.friendLogin == "${friend}" and r.userLogin == "${user}")`;
+
+		return from(this.db.queryAPI.rows(pairQuery)).pipe(
+			map((row: Row) => ({ body: row, status: true })),
+			first(() => true, { body: null, status: false }),
+			catchError((err: any) => {
+				console.error(err);
+				return of({ body: null, status: false, err });
+			}),
+		);
+	}
+
 	public addFriend(userLogin: string, friendLogin: string): Observable<void> {
-		// TODO проверить на существующую пару друзей
 		return forkJoin([this.getUserByLogin(userLogin), this.getUserByLogin(friendLogin)]).pipe(
 			switchMap((users: IQueryResponse[]) => {
 				if (users.some((user: IQueryResponse) => !!user.err)) {
@@ -20,6 +46,16 @@ export class User {
 
 				if (!users.every((user: IQueryResponse) => user.status)) {
 					throw new UserError('No matching users found.');
+				}
+
+				return forkJoin([
+					this.getFriendsPair(userLogin, friendLogin),
+					this.getFriendsPair(friendLogin, userLogin),
+				]);
+			}),
+			switchMap((friendsPairs: IQueryResponse[]) => {
+				if (friendsPairs.some((pair: IQueryResponse) => pair.status)) {
+					throw new UserExistError('Given users is already friends.');
 				}
 
 				const user: Point = new Point('friends')
@@ -41,7 +77,7 @@ export class User {
 				}
 
 				if (row.status) {
-					throw new UserError('User already exists');
+					throw new UserExistError('User already exists');
 				}
 
 				const user: Point = new Point('users')
@@ -55,13 +91,7 @@ export class User {
 		);
 	}
 
-	private getUserByLogin(login: string): Observable<IQueryResponse> {
-		// const queryBuilder: InfluxQueryBuilder = new InfluxQueryBuilder(this.db.bucket);
-		//
-		// queryBuilder.addMeasurement('user');
-		// queryBuilder.addField('login');
-		// queryBuilder.addValue(login);
-
+	public getUserByLogin(login: string): Observable<IQueryResponse> {
 		const userExistQuery: string = `from(bucket: "${this.db.bucket}")
 		|> range(start: 0)
 		|> filter(fn: (r) => r["_measurement"] == "users")
@@ -70,7 +100,7 @@ export class User {
 
 		return from(this.db.queryAPI.rows(userExistQuery)).pipe(
 			map((row: Row) => ({ body: row, status: true })),
-			last(() => true, { body: null, status: false }),
+			first(() => true, { body: null, status: false }),
 			catchError((err: any) => {
 				console.error(err);
 				return of({ body: null, status: false, err });
