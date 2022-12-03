@@ -8,9 +8,9 @@ import { User } from '../models/user';
 
 const putRoutes: Router = express.Router();
 
-const usersModel: User = new User(DBInstance.getDBInstance('my-org', 'test-bucket'));
+const usersModel: User = new User(DBInstance.getDBInstance('my-org', process.env.BUCKET!));
 const messageModel: Message = new Message(
-	DBInstance.getDBInstance('my-org', 'test-bucket'),
+	DBInstance.getDBInstance('my-org', process.env.BUCKET!),
 	usersModel,
 );
 

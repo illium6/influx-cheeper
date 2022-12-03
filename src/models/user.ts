@@ -1,32 +1,92 @@
 import { Point, Row } from '@influxdata/influxdb-client';
 import {
 	catchError,
+	concatMap,
 	first,
 	forkJoin,
 	from,
 	map,
 	Observable,
 	of,
+	reduce,
 	switchMap,
 } from 'rxjs';
 import { DBInstance } from '../DBInstance';
 import { IQueryResponse } from '../interfaces/query-response';
+import { IFriendsCount, IUser } from '../interfaces/user';
 import { UserError, UserExistError } from './user-error';
 
 export class User {
 	public constructor(private db: DBInstance) {}
 
-	public getFriendsPair(user: string, friend: string): Observable<IQueryResponse> {
-		const pairQuery: string = `from(bucket: "test-bucket")
+	public getFriends(user: string): Observable<IQueryResponse<IUser[]>> {
+		return this.getFriendsLogin(user).pipe(
+			concatMap((row: IQueryResponse) => {
+				if (!row.status) {
+					throw row.err;
+				}
+
+				const o = row.body && row.body.tableMeta.toObject(row.body.values);
+				return this.getUserByLogin(o!._value);
+			}),
+			map((userRow: IQueryResponse) => {
+				const o = userRow.body && userRow.body.tableMeta.toObject(userRow.body.values);
+				return {
+					name: o && o.name,
+					login: o && o.login,
+				};
+			}),
+			reduce(
+				(acc: IQueryResponse<IUser[]>, cur: IUser) => {
+					acc.body!.push(cur);
+					return acc;
+				},
+				{ body: [], status: true },
+			),
+			map((value: IQueryResponse<IUser[]>) => {
+				value.body && value.body.sort((a, b) => a.name.localeCompare(b.name));
+				return value;
+			}),
+			first(() => true, { body: null, status: false }),
+			catchError((err: any) => {
+				console.error(err);
+				return of({ body: null, status: false, err });
+			}),
+		);
+	}
+
+	public getFriendsCount(user: string): Observable<IQueryResponse<IFriendsCount>> {
+		const countQuery: string = `from(bucket: "${this.db.bucket}")
 		|> range(start: 0)
-		|> filter(fn: (r) => r["_measurement"] == "friends")
-		|> filter(fn: (r) => r._field == "userLogin" or r._field == "friendLogin")
-		|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-		|> filter(fn: (r) => r.friendLogin == "${friend}" and r.userLogin == "${user}")`;
+		|> filter(fn: (r) => r["_measurement"] == "${user} friends")
+		|> filter(fn: (r) => r._field == "friendLogin")
+		|> count()`;
+
+		return from(this.db.queryAPI.rows(countQuery)).pipe(
+			map((row: Row) => {
+				const o = row.tableMeta.toObject(row.values);
+				return { body: { friendsCount: o._value }, status: true };
+			}),
+			first(() => true, { body: null, status: false }),
+			catchError((err: any) => {
+				console.error(err);
+				return of({ body: null, status: false, err });
+			}),
+		);
+	}
+
+	private getFriendsLogin(user: string, friend?: string): Observable<IQueryResponse> {
+		let pairQuery: string = `from(bucket: "${this.db.bucket}")
+		|> range(start: 0)
+		|> filter(fn: (r) => r["_measurement"] == "${user} friends")
+		|> filter(fn: (r) => r._field == "friendLogin")`;
+
+		if (friend) {
+			pairQuery += `\n		|> filter(fn: (r) => r._value == "${friend}")`;
+		}
 
 		return from(this.db.queryAPI.rows(pairQuery)).pipe(
 			map((row: Row) => ({ body: row, status: true })),
-			first(() => true, { body: null, status: false }),
 			catchError((err: any) => {
 				console.error(err);
 				return of({ body: null, status: false, err });
@@ -48,21 +108,27 @@ export class User {
 					throw new UserError('No matching users found.');
 				}
 
-				return forkJoin([
-					this.getFriendsPair(userLogin, friendLogin),
-					this.getFriendsPair(friendLogin, userLogin),
-				]);
+				return this.getFriendsLogin(userLogin, friendLogin).pipe(
+					first(() => true, { body: null, status: false }),
+				);
 			}),
-			switchMap((friendsPairs: IQueryResponse[]) => {
-				if (friendsPairs.some((pair: IQueryResponse) => pair.status)) {
+			switchMap((friendsPairs: IQueryResponse) => {
+				if (friendsPairs.status) {
 					throw new UserExistError('Given users is already friends.');
 				}
 
-				const user: Point = new Point('friends')
-					.stringField('userLogin', userLogin)
-					.stringField('friendLogin', friendLogin);
+				const userEntry: Point = new Point(`${userLogin} friends`).stringField(
+					'friendLogin',
+					friendLogin,
+				);
 
-				this.db.writeAPI.writePoint(user);
+				const friendEntry: Point = new Point(`${friendLogin} friends`).stringField(
+					'friendLogin',
+					userLogin,
+				);
+
+				this.db.writeAPI.writePoint(userEntry);
+				this.db.writeAPI.writePoint(friendEntry);
 
 				return from(this.db.writeAPI.flush());
 			}),
@@ -95,8 +161,9 @@ export class User {
 		const userExistQuery: string = `from(bucket: "${this.db.bucket}")
 		|> range(start: 0)
 		|> filter(fn: (r) => r["_measurement"] == "users")
-		|> filter(fn: (r) => r["_field"] == "login")
-		|> filter(fn: (r) => r["_value"] == "${login}")`;
+		|> filter(fn: (r) => r["_field"] == "login" or r["_field"] == "name")
+		|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+		|> filter(fn: (r) => r.login == "${login}")`;
 
 		return from(this.db.queryAPI.rows(userExistQuery)).pipe(
 			map((row: Row) => ({ body: row, status: true })),
